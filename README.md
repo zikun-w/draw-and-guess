@@ -23,10 +23,13 @@
 | --- | --- |
 | 前端 | Vue 3、TypeScript、Vite、Canvas 2D、Pointer Events |
 | 后端 | Go、标准库 `net/http`、`coder/websocket` |
+| 消息编码 | Protobuf 笔迹与快照、JSON 状态与控制消息，兼容旧 JSON 客户端 |
 | 数据 | 内存中的房间状态；SQLite 保存访客会话和结算记录 |
 | 部署 | Debian、systemd，支持 Caddy 或已有的 Nginx / OpenResty |
 
 后端按房间顺序处理事件，不同房间并发运行。笔迹每 40ms 批量发送，广播复用编码结果；每个连接使用有界发送队列。选词、计时、权限和得分由服务器裁决，答案仅发送给当前画手。
+
+绘画二进制协议的对照测试、生成方式与兼容回退说明见 [Protobuf 对照测试](docs/protobuf-experiment.md)。生成代码已包含在仓库中，正常构建无需安装 Protobuf 编译器。
 
 ## 快速开始
 

@@ -1,6 +1,6 @@
 # 游戏协议 v1
 
-本地 Protobuf 实验增加可选 WebSocket 子协议 `drawguess.pb.v1`，定义见 [drawing.proto](drawing.proto)，测量与回退方式见 [实验报告](../docs/protobuf-experiment.md)。下文的 JSON 消息仍是完整兼容通道。
+可选 WebSocket 子协议 `drawguess.pb.v1` 为绘画提供二进制通道，定义见 [drawing.proto](drawing.proto)，测量与回退方式见 [对照测试](../docs/protobuf-experiment.md)。下文的 JSON 消息仍是完整兼容通道。
 
 协商成功后，笔迹命令/广播及完整快照使用二进制 `DrawingPacket`；其余消息仍为文本 JSON。`STROKE` 的 `xy` 为 packed 数字数组，每两个值为一个点；命令最多 96 点，快照共计最多 24,000 点。二进制命令只接受 `STROKE`，携带当前 turn，禁止附带服务端 seq、快照状态或其他笔画。服务器仍校验玩家权限和阶段。
 
