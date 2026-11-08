@@ -1,0 +1,28 @@
+syntax = "proto3";
+package drawguess.wire.v1;
+option go_package = "drawguess/internal/wirepb";
+
+enum PacketType {
+  PACKET_UNSPECIFIED = 0;
+  STROKE = 1;
+  SNAPSHOT = 2;
+}
+
+message StrokeChunk {
+  string id = 1;
+  string color = 2;
+  uint32 width = 3;
+  bool eraser = 4;
+  // x0, y0, x1, y1, ...; values must be 0..10000.
+  repeated uint32 xy = 5 [packed = true];
+}
+
+message DrawingPacket {
+  PacketType type = 1;
+  uint32 turn = 2;
+  uint32 seq = 3;
+  StrokeChunk stroke = 4;
+  repeated StrokeChunk strokes = 5;
+  // Snapshot-only, already filtered for the receiving player's identity.
+  bytes state_json = 6;
+}

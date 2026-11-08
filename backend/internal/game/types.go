@@ -70,7 +70,7 @@ type event struct {
 	client *client
 	cmd    Command
 }
-type frame struct {
+type Frame struct {
 	Type    string   `json:"type"`
 	State   *State   `json:"state,omitempty"`
 	Strokes []Stroke `json:"strokes,omitempty"`
@@ -79,6 +79,8 @@ type frame struct {
 	Turn    int      `json:"turn,omitempty"`
 	Message string   `json:"message,omitempty"`
 }
+
+type frame = Frame
 
 func encode(v any) []byte { b, _ := json.Marshal(v); return b }
 

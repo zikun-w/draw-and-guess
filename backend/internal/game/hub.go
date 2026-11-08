@@ -72,13 +72,13 @@ func (h *Hub) ServeWS(w http.ResponseWriter, req *http.Request, id, name string)
 		http.Error(w, "房间不存在或已过期", http.StatusNotFound)
 		return
 	}
-	conn, err := websocket.Accept(w, req, nil)
+	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{Subprotocols: []string{ProtobufProtocol}})
 	if err != nil {
 		return
 	}
 	conn.SetReadLimit(16 * 1024)
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &client{id: id, name: name, conn: conn, ctx: ctx, cancel: cancel, out: make(chan []byte, 128)}
+	c := &client{id: id, name: name, conn: conn, binary: conn.Subprotocol() == ProtobufProtocol, ctx: ctx, cancel: cancel, out: make(chan outbound, 128)}
 	defer c.stop()
 	defer r.submit(event{kind: "disconnect", client: c})
 	go c.writer()
@@ -89,7 +89,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, req *http.Request, id, name string)
 	last := time.Now()
 	lastSync := time.Time{}
 	for {
-		_, data, err := conn.Read(ctx)
+		kind, data, err := conn.Read(ctx)
 		if err != nil {
 			return
 		}
@@ -101,7 +101,15 @@ func (h *Hub) ServeWS(w http.ResponseWriter, req *http.Request, id, name string)
 			return
 		}
 		tokens--
-		cmd, err := decodeCommand(data)
+		var cmd Command
+		if kind == websocket.MessageBinary && c.binary {
+			cmd, err = decodeProtobufCommand(data)
+		} else if kind == websocket.MessageText {
+			cmd, err = decodeCommand(data)
+		} else {
+			c.error("消息格式有误")
+			continue
+		}
 		if err != nil {
 			c.error("消息格式有误")
 			continue
@@ -127,8 +135,14 @@ type client struct {
 	conn     *websocket.Conn
 	ctx      context.Context
 	cancel   context.CancelFunc
-	out      chan []byte
+	out      chan outbound
+	binary   bool
 	once     sync.Once
+}
+
+type outbound struct {
+	kind websocket.MessageType
+	data []byte
 }
 
 func (c *client) stop() {
@@ -140,13 +154,17 @@ func (c *client) stop() {
 	})
 }
 func (c *client) send(b []byte) {
+	c.sendPacket(outbound{websocket.MessageText, b})
+}
+func (c *client) sendBinary(b []byte) { c.sendPacket(outbound{websocket.MessageBinary, b}) }
+func (c *client) sendPacket(packet outbound) {
 	select {
 	case <-c.ctx.Done():
 		return
 	default:
 	}
 	select {
-	case c.out <- b:
+	case c.out <- packet:
 	default:
 		c.stop()
 	}
@@ -159,15 +177,15 @@ func (c *client) writer() {
 	defer ticker.Stop()
 	for {
 		select {
-		case data := <-c.out:
+		case packet := <-c.out:
 			ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
-			err := c.conn.Write(ctx, websocket.MessageText, data)
+			err := c.conn.Write(ctx, packet.kind, packet.data)
 			cancel()
 			if err != nil {
 				return
 			}
 			// Fatal frames are only sent on rejected room admission.
-			if len(data) > 15 && string(data[:15]) == `{"type":"fatal"` {
+			if len(packet.data) > 15 && string(packet.data[:15]) == `{"type":"fatal"` {
 				return
 			}
 		case <-ticker.C:

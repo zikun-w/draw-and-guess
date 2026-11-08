@@ -23,6 +23,15 @@ test("two players draw, reconnect, guess, finish and inspect history", async ({
   browser,
 }) => {
   const errors: string[] = [];
+  const binary = { sent: 0, received: 0 };
+  page.on("websocket", (socket) => {
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload !== "string") binary.sent++;
+    });
+    socket.on("framereceived", (frame) => {
+      if (typeof frame.payload !== "string") binary.received++;
+    });
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await page.getByLabel("你的昵称").fill("小画家");
@@ -85,6 +94,14 @@ test("two players draw, reconnect, guess, finish and inspect history", async ({
     await expect(page.locator(".history-list article")).toHaveCount(1);
     await expect(page.locator(".history-list")).toContainText("小画家");
     expect(errors).toEqual([]);
+    if (process.env.E2E_WIRE_FORMAT === "protobuf") {
+      expect(binary.sent).toBeGreaterThan(0);
+      expect(binary.received).toBeGreaterThan(0);
+    }
+    if (process.env.E2E_WIRE_FORMAT === "json") {
+      expect(binary.sent).toBe(0);
+      expect(binary.received).toBe(0);
+    }
   } finally {
     await context.close();
   }

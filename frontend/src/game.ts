@@ -1,4 +1,6 @@
 import { computed, ref } from "vue";
+import { PROTOBUF_PROTOCOL, encodeStroke, decodeDrawing } from "./wire";
+import type { IncomingFrame } from "./wire";
 
 export interface Point {
   x: number;
@@ -98,8 +100,13 @@ let wantedRoom = "";
 let attempts = 0;
 let receivedSeq = 0;
 let awaitingSync = false;
+let jsonFallback = false;
 export function send(type: string, payload: Record<string, unknown> = {}) {
   if (socket?.readyState !== WebSocket.OPEN) return false;
+  if (type === "stroke" && socket.protocol === PROTOBUF_PROTOCOL) {
+    socket.send(encodeStroke(state.value?.turn || 0, payload.stroke as Stroke));
+    return true;
+  }
   socket.send(
     JSON.stringify({ type, turn: state.value?.turn || 0, ...payload }),
   );
@@ -109,6 +116,7 @@ export function connectRoom(room: string) {
   disconnectRoom(false);
   wantedRoom = room;
   attempts = 0;
+  jsonFallback = false;
   state.value = null;
   strokes.value = [];
   const url = new URL(location.href);
@@ -133,25 +141,41 @@ async function openSocket() {
     }
   }
   if (room !== wantedRoom) return;
+  const useProtobuf =
+    import.meta.env.VITE_WIRE_FORMAT !== "json" && !jsonFallback;
+  let opened = false;
   const current = new WebSocket(
     `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws?room=${encodeURIComponent(wantedRoom)}`,
+    useProtobuf ? [PROTOBUF_PROTOCOL] : [],
   );
+  current.binaryType = "arraybuffer";
   socket = current;
   current.onopen = () => {
     if (current !== socket) return;
+    opened = true;
     connection.value = "connected";
     attempts = 0;
   };
   current.onmessage = (event) => {
     if (current !== socket) return;
-    const frame = JSON.parse(event.data);
+    let frame: IncomingFrame;
+    try {
+      frame =
+        typeof event.data === "string"
+          ? JSON.parse(event.data)
+          : decodeDrawing(event.data);
+    } catch {
+      notify("房间消息无法解析，正在重新连接");
+      current.close(1002, "invalid drawing packet");
+      return;
+    }
     if (frame.type === "fatal") {
-      notify(frame.message);
+      notify(frame.message || "房间连接已结束");
       disconnectRoom();
       return;
     }
     if (frame.type === "error") {
-      notify(frame.message);
+      notify(frame.message || "操作失败，请稍后重试");
       return;
     }
     if (frame.type === "snapshot" || frame.type === "state") {
@@ -188,6 +212,11 @@ async function openSocket() {
   };
   current.onclose = async () => {
     if (socket !== current || !wantedRoom) return;
+    if (!opened && useProtobuf) {
+      jsonFallback = true;
+      retry = setTimeout(openSocket, 200);
+      return;
+    }
     connection.value = "reconnecting";
     attempts++;
     if (attempts > 8) {

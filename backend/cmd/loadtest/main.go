@@ -21,11 +21,13 @@ import (
 )
 
 type metrics struct {
-	mu        sync.Mutex
-	latencies []float64
-	received  atomic.Int64
-	bytes     atomic.Int64
-	failures  atomic.Int64
+	mu          sync.Mutex
+	latencies   []float64
+	received    atomic.Int64
+	bytes       atomic.Int64
+	strokeBytes atomic.Int64
+	uploadBytes atomic.Int64
+	failures    atomic.Int64
 }
 type senderTimes struct {
 	mu    sync.Mutex
@@ -34,6 +36,7 @@ type senderTimes struct {
 type peer struct {
 	conn   *websocket.Conn
 	states chan game.State
+	binary bool
 }
 type testRoom struct {
 	peers []*peer
@@ -46,8 +49,10 @@ func main() {
 	players := flag.Int("players", 8, "players per room (2-8)")
 	batches := flag.Int("batches", 100, "batches per room (1-500)")
 	interval := flag.Duration("interval", 40*time.Millisecond, "time between stroke batches")
+	format := flag.String("format", "json", "drawing format: json or protobuf")
+	pointCount := flag.Int("points", 24, "coordinates per batch (1-48)")
 	flag.Parse()
-	if *rooms < 1 || *rooms > 1000 || *players < 2 || *players > 8 || *batches < 1 || *batches > 500 || *interval < 15*time.Millisecond {
+	if *rooms < 1 || *rooms > 1000 || *players < 2 || *players > 8 || *batches < 1 || *batches > 500 || *interval < 15*time.Millisecond || (*format != "json" && *format != "protobuf") || *pointCount < 1 || *pointCount > 48 {
 		fmt.Fprintln(os.Stderr, "invalid workload")
 		os.Exit(1)
 	}
@@ -67,28 +72,35 @@ func main() {
 		check(err)
 		tr := testRoom{times: &senderTimes{times: map[int]time.Time{}}}
 		for j := 0; j < *players; j++ {
-			conn, _, err := websocket.Dial(ctx, fmt.Sprintf("%s/ws?room=%s&player=p%d_%d", server.URL, id, i, j), nil)
+			opts := &websocket.DialOptions{}
+			if *format == "protobuf" {
+				opts.Subprotocols = []string{game.ProtobufProtocol}
+			}
+			conn, _, err := websocket.Dial(ctx, fmt.Sprintf("%s/ws?room=%s&player=p%d_%d", server.URL, id, i, j), opts)
 			check(err)
 			conn.SetReadLimit(4 * 1024 * 1024)
-			p := &peer{conn: conn, states: make(chan game.State, 64)}
+			p := &peer{conn: conn, states: make(chan game.State, 64), binary: conn.Subprotocol() == game.ProtobufProtocol}
+			if p.binary != (*format == "protobuf") {
+				check(fmt.Errorf("unexpected negotiated format"))
+			}
 			tr.peers = append(tr.peers, p)
 			times := tr.times
 			readers.Add(1)
 			go func() {
 				defer readers.Done()
 				for {
-					_, data, err := conn.Read(ctx)
+					kind, data, err := conn.Read(ctx)
 					if err != nil {
 						return
 					}
 					m.bytes.Add(int64(len(data)))
-					var f struct {
-						Type    string      `json:"type"`
-						State   *game.State `json:"state"`
-						Seq     int         `json:"seq"`
-						Message string      `json:"message"`
+					var f game.Frame
+					if kind == websocket.MessageBinary {
+						f, err = game.DecodeDrawingFrame(data)
+					} else {
+						err = json.Unmarshal(data, &f)
 					}
-					if json.Unmarshal(data, &f) != nil {
+					if err != nil {
 						m.failures.Add(1)
 						continue
 					}
@@ -102,6 +114,7 @@ func main() {
 						}
 					}
 					if f.Type == "stroke" {
+						m.strokeBytes.Add(int64(len(data)))
 						times.mu.Lock()
 						sent := times.times[f.Seq]
 						times.mu.Unlock()
@@ -124,6 +137,9 @@ func main() {
 		tr.turn = choice.Turn
 		all = append(all, tr)
 	}
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	bytesBefore := m.bytes.Load()
 	cpuStart := cpuSeconds()
 	start := time.Now()
 	var writers sync.WaitGroup
@@ -140,15 +156,28 @@ func main() {
 					m.failures.Add(1)
 					return
 				}
-				points := make([]game.Point, 24)
+				points := make([]game.Point, *pointCount)
 				for k := range points {
 					points[k] = game.Point{X: (seq*10 + k*100) % 10000, Y: (seq*10 + k*90) % 10000}
 				}
 				tr.times.mu.Lock()
 				tr.times.times[seq] = time.Now()
 				tr.times.mu.Unlock()
-				data, _ := json.Marshal(game.Command{Type: "stroke", Turn: tr.turn, Stroke: game.Stroke{ID: "load-stroke", Color: "#292d2b", Width: 6, Tool: "pen", Points: points}})
-				if err := tr.peers[0].conn.Write(ctx, websocket.MessageText, data); err != nil {
+				command := game.Command{Type: "stroke", Turn: tr.turn, Stroke: game.Stroke{ID: "00000000-0000-4000-8000-000000000000", Color: "#292d2b", Width: 6, Tool: "pen", Points: points}}
+				var data []byte
+				kind := websocket.MessageText
+				if tr.peers[0].binary {
+					data, _ = game.EncodeStrokeCommand(command)
+					kind = websocket.MessageBinary
+				} else {
+					data, _ = json.Marshal(struct {
+						Type   string      `json:"type"`
+						Turn   int         `json:"turn"`
+						Stroke game.Stroke `json:"stroke"`
+					}{command.Type, command.Turn, command.Stroke})
+				}
+				m.uploadBytes.Add(int64(len(data)))
+				if err := tr.peers[0].conn.Write(ctx, kind, data); err != nil {
 					m.failures.Add(1)
 					return
 				}
@@ -165,6 +194,9 @@ func main() {
 	cpu := cpuSeconds() - cpuStart
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
+	runtime.GC()
+	var retained runtime.MemStats
+	runtime.ReadMemStats(&retained)
 	m.mu.Lock()
 	sort.Float64s(m.latencies)
 	p50, p95, p99 := percentile(m.latencies, .50), percentile(m.latencies, .95), percentile(m.latencies, .99)
@@ -178,7 +210,7 @@ func main() {
 	server.Close()
 	readers.Wait()
 	time.Sleep(100 * time.Millisecond)
-	output := map[string]any{"rooms": *rooms, "connections": *rooms * *players, "batches_per_room": *batches, "interval_ms": interval.Milliseconds(), "expected_deliveries": expected, "received_deliveries": m.received.Load(), "errors": m.failures.Load(), "elapsed_seconds": elapsed.Seconds(), "p50_ms": p50, "p95_ms": p95, "p99_ms": p99, "heap_mib": float64(mem.HeapAlloc) / 1024 / 1024, "outbound_mib_per_second": float64(m.bytes.Load()) / 1024 / 1024 / elapsed.Seconds(), "process_cpu_seconds": cpu, "goroutines_before": baseGoroutines, "goroutines_after_cleanup": runtime.NumGoroutine(), "scope": "loopback room engine + WebSocket; includes generator/clients; excludes HTTP admission, TLS, database and public network"}
+	output := map[string]any{"format": *format, "points_per_batch": *pointCount, "rooms": *rooms, "connections": *rooms * *players, "batches_per_room": *batches, "interval_ms": interval.Milliseconds(), "expected_deliveries": expected, "received_deliveries": m.received.Load(), "errors": m.failures.Load(), "elapsed_seconds": elapsed.Seconds(), "p50_ms": p50, "p95_ms": p95, "p99_ms": p99, "heap_mib": float64(mem.HeapAlloc) / 1024 / 1024, "retained_heap_mib": float64(retained.HeapAlloc) / 1024 / 1024, "allocated_mib": float64(mem.TotalAlloc-before.TotalAlloc) / 1024 / 1024, "gc_cycles": mem.NumGC - before.NumGC, "upload_bytes": m.uploadBytes.Load(), "stroke_delivery_bytes": m.strokeBytes.Load(), "outbound_mib_per_second": float64(m.bytes.Load()-bytesBefore) / 1024 / 1024 / elapsed.Seconds(), "process_cpu_seconds": cpu, "goroutines_before": baseGoroutines, "goroutines_after_cleanup": runtime.NumGoroutine(), "scope": "loopback room engine + WebSocket; full payload decoding; includes generator/clients; excludes HTTP admission, TLS, database and public network"}
 	b, _ := json.MarshalIndent(output, "", "  ")
 	fmt.Println(string(b))
 	if m.received.Load() != expected || m.failures.Load() != 0 {

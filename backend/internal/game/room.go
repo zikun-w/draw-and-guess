@@ -212,6 +212,10 @@ func (r *room) personalState(id string) State {
 }
 func (r *room) snapshot(c *client) {
 	s := r.personalState(c.id)
+	if c.binary {
+		c.sendBinary(encodeProtobufFrame(frame{Type: "snapshot", State: &s, Strokes: r.strokes}))
+		return
+	}
 	c.send(encode(frame{Type: "snapshot", State: &s, Strokes: r.strokes}))
 }
 func (r *room) broadcastState() {
@@ -230,10 +234,20 @@ func (r *room) broadcastState() {
 	}
 }
 func (r *room) broadcast(f frame) {
-	data := encode(f)
+	var data, binary []byte
 	for _, p := range r.players {
 		if p.client != nil {
-			p.client.send(data)
+			if p.client.binary && f.Type == "stroke" {
+				if binary == nil {
+					binary = encodeProtobufFrame(f)
+				}
+				p.client.sendBinary(binary)
+			} else {
+				if data == nil {
+					data = encode(f)
+				}
+				p.client.send(data)
+			}
 		}
 	}
 }

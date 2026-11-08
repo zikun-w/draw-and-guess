@@ -11,7 +11,7 @@ func testClient(t *testing.T, id string) *client {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	return &client{id: id, name: id, ctx: ctx, cancel: cancel, out: make(chan []byte, 128)}
+	return &client{id: id, name: id, ctx: ctx, cancel: cancel, out: make(chan outbound, 128)}
 }
 func setup(t *testing.T) (*room, *client, *client) {
 	t.Helper()
@@ -53,7 +53,7 @@ func TestSecretIsolationAndReconnect(t *testing.T) {
 		State   State
 		Strokes []Stroke
 	}
-	if err := json.Unmarshal(<-replacement.out, &f); err != nil {
+	if err := json.Unmarshal((<-replacement.out).data, &f); err != nil {
 		t.Fatal(err)
 	}
 	if f.Type != "snapshot" || f.State.Word != "" || len(f.State.Choices) != 0 || len(f.Strokes) != 1 || f.State.Seq != 1 {
@@ -83,7 +83,7 @@ func TestAuthorityScoringAndTransitions(t *testing.T) {
 		t.Fatalf("bad scoring: %+v", r.publicState())
 	}
 	var first frame
-	if err := json.Unmarshal(<-b.out, &first); err != nil {
+	if err := json.Unmarshal((<-b.out).data, &first); err != nil {
 		t.Fatal(err)
 	}
 	// The answer is disclosed only in the reveal phase.
@@ -120,7 +120,7 @@ func TestCorrectGuessNeverBroadcastAsChat(t *testing.T) {
 	drain(c)
 	r.command(b, Command{Type: "guess", Text: r.word})
 	var f frame
-	_ = json.Unmarshal(<-c.out, &f)
+	_ = json.Unmarshal((<-c.out).data, &f)
 	if f.State == nil || f.State.Phase != "drawing" || f.State.Word != "" || f.State.RevealedWord != "" {
 		t.Fatal("answer leaked while still drawing")
 	}
