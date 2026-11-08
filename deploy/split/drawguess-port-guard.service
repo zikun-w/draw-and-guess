@@ -1,0 +1,13 @@
+[Unit]
+Description=Restrict Drawguess FRP port to loopback
+Before=frps.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/drawguess-port-guard
+ExecReload=/usr/local/sbin/drawguess-port-guard
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

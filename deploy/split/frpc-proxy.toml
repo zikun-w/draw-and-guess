@@ -1,0 +1,7 @@
+# Append to the backend host's frpc.toml; preserve existing authentication.
+[[proxies]]
+name = "drawguess"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8080
+remotePort = 25570

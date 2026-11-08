@@ -1,0 +1,14 @@
+.tools/
+.local/
+node_modules/
+dist/
+data/
+*.db*
+*.log
+.env
+!*.env.example
+coverage/
+*.tsbuildinfo
+test-results/
+playwright-report/
+*.exe

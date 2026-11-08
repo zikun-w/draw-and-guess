@@ -1,0 +1,19 @@
+# Replace game.example.com with your domain; DNS must point to this server.
+game.example.com {
+    encode zstd gzip
+    @backend path /api/* /ws /healthz
+    handle @backend {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        root * /opt/drawguess/current/frontend
+        try_files {path} /index.html
+        file_server
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        X-Frame-Options DENY
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    }
+}

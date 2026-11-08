@@ -1,0 +1,6 @@
+table inet drawguess_guard {
+    chain input {
+        type filter hook input priority -20; policy accept;
+        iifname != "lo" tcp dport 25570 counter drop comment "Drawguess tunnel is local-only"
+    }
+}
