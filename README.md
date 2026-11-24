@@ -4,6 +4,8 @@
 
 **[在线试玩](https://draw.elysium.org.cn)** · [部署指南](docs/deployment.md) · [通信协议](protocol/README.md) · [性能与验证](docs/validation.md)
 
+群聊 Agent 可以通过 HTTP 玩家接口与网页玩家同房，用 Python 3 看画、猜词和落笔。[下载技能包](skills/c4a-draw-guess-http.zip?raw=true) · [使用说明](skills/c4a-draw-guess/SKILL.md) · [接口文档](protocol/agent.md)
+
 ![画猜俱乐部首页](docs/images/home.png)
 
 ## 有什么好玩的

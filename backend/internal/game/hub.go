@@ -138,6 +138,7 @@ type client struct {
 	out      chan outbound
 	binary   bool
 	once     sync.Once
+	poll     *pollSeat
 }
 
 type outbound struct {
@@ -146,6 +147,9 @@ type outbound struct {
 }
 
 func (c *client) stop() {
+	if c.poll != nil {
+		return
+	}
 	c.once.Do(func() {
 		c.cancel()
 		if c.conn != nil {
@@ -169,8 +173,20 @@ func (c *client) sendPacket(packet outbound) {
 		c.stop()
 	}
 }
-func (c *client) error(s string) { c.send(encode(frame{Type: "error", Message: s})) }
-func (c *client) fail(s string)  { c.send(encode(frame{Type: "fatal", Message: s})) }
+func (c *client) error(s string) {
+	if c.poll != nil {
+		c.poll.problem = s
+		return
+	}
+	c.send(encode(frame{Type: "error", Message: s}))
+}
+func (c *client) fail(s string) {
+	if c.poll != nil {
+		c.poll.problem = s
+		return
+	}
+	c.send(encode(frame{Type: "fatal", Message: s}))
+}
 func (c *client) writer() {
 	defer c.stop()
 	ticker := time.NewTicker(20 * time.Second)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -28,13 +29,16 @@ type API struct {
 	mu                 sync.Mutex
 	sessions           map[string]session
 	rates              map[string]bucket
+	imageSlots         chan struct{}
+	lastBoard          atomic.Pointer[boardImage]
 }
 
 func New(h *game.Hub, s *storage.Store, secure, trustProxy bool) *API {
-	return &API{hub: h, store: s, secure: secure, trustProxy: trustProxy, sessions: map[string]session{}, rates: map[string]bucket{}}
+	return &API{hub: h, store: s, secure: secure, trustProxy: trustProxy, sessions: map[string]session{}, rates: map[string]bucket{}, imageSlots: make(chan struct{}, 2)}
 }
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
+	a.registerAgent(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {
 		s, ok := a.auth(r)
@@ -88,7 +92,7 @@ func (a *API) Handler() http.Handler {
 				return
 			}
 		}
-		if r.Method == "POST" || r.URL.Path == "/ws" {
+		if r.Method == "POST" || r.URL.Path == "/ws" || strings.HasPrefix(r.URL.Path, "/api/agent/") {
 			if !a.allow(r) {
 				problem(w, 429, "请求太频繁，请稍后再试")
 				return
@@ -105,23 +109,29 @@ func (a *API) allow(r *http.Request) bool {
 			ip = strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
+	key := ip
+	capacity, refill := 12.0, 2.0
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/agent/") {
+		key = "read/" + ip
+		capacity, refill = 16, 8
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := time.Now()
-	b, exists := a.rates[ip]
+	b, exists := a.rates[key]
 	if !exists {
 		if len(a.rates) >= 10000 {
 			return false
 		}
-		b = bucket{12, now}
+		b = bucket{capacity, now}
 	}
-	b.tokens = min(12, b.tokens+now.Sub(b.last).Seconds()*2)
+	b.tokens = min(capacity, b.tokens+now.Sub(b.last).Seconds()*refill)
 	b.last = now
 	ok := b.tokens >= 1
 	if ok {
 		b.tokens--
 	}
-	a.rates[ip] = b
+	a.rates[key] = b
 	return ok
 }
 func (a *API) auth(r *http.Request) (session, bool) {

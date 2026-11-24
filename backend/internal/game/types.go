@@ -69,6 +69,7 @@ type event struct {
 	kind   string
 	client *client
 	cmd    Command
+	agent  *agentRequest
 }
 type Frame struct {
 	Type    string   `json:"type"`

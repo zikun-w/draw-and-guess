@@ -70,6 +70,8 @@ func (r *room) run() {
 		select {
 		case e := <-r.inbox:
 			switch e.kind {
+			case "agent":
+				r.handleAgent(e.agent)
 			case "join":
 				r.join(e.client)
 			case "disconnect":
@@ -156,7 +158,9 @@ func (r *room) join(c *client) {
 	if hp := r.player(r.host); hp == nil || !hp.Connected {
 		r.host = c.id
 	}
-	r.snapshot(c)
+	if c.poll == nil {
+		r.snapshot(c)
+	}
 	r.broadcastState()
 }
 func (r *room) disconnect(c *client) {
@@ -222,7 +226,7 @@ func (r *room) broadcastState() {
 	s := r.publicState()
 	data := encode(frame{Type: "state", State: &s})
 	for _, p := range r.players {
-		if p.client == nil {
+		if p.client == nil || p.client.poll != nil {
 			continue
 		}
 		if p.ID == r.drawer {
@@ -236,7 +240,7 @@ func (r *room) broadcastState() {
 func (r *room) broadcast(f frame) {
 	var data, binary []byte
 	for _, p := range r.players {
-		if p.client != nil {
+		if p.client != nil && p.client.poll == nil {
 			if p.client.binary && f.Type == "stroke" {
 				if binary == nil {
 					binary = encodeProtobufFrame(f)
@@ -259,6 +263,10 @@ func (r *room) command(c *client, cmd Command) {
 	if !r.deadline.IsZero() && !time.Now().Before(r.deadline) {
 		r.tick(time.Now())
 	}
+	r.applyCommand(c, cmd)
+}
+func (r *room) applyCommand(c *client, cmd Command) {
+	p := r.player(c.id)
 	switch cmd.Type {
 	case "sync":
 		r.snapshot(c)
@@ -506,6 +514,9 @@ func (r *room) tick(now time.Time) {
 	changed := false
 	for i := len(r.players) - 1; i >= 0; i-- {
 		p := r.players[i]
+		if c := p.client; c != nil && c.poll != nil && now.Sub(c.poll.seen) >= agentLease {
+			r.disconnect(c)
+		}
 		if !p.Connected && !p.disconnected.IsZero() && now.Sub(p.disconnected) > 45*time.Second {
 			r.remove(p.ID)
 			changed = true
