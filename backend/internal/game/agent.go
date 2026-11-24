@@ -175,23 +175,32 @@ func (r *room) agentAction(p *Player, a AgentAction) AgentResult {
 		if cmd.Text == "" || utf8.RuneCountInString(cmd.Text) > 120 {
 			return denied(400, "猜词需要 1–120 个字符")
 		}
-	case "draw", "clear", "undo":
+	case "draw", "sketch", "clear", "undo":
 		if next != "draw" {
 			return denied(409, "当前不能画图")
 		}
 		if a.Seq == nil || *a.Seq != r.seq {
 			return denied(409, "画板已变化，请读取最新 seq")
 		}
-		if a.Type == "draw" {
+		if a.Type == "draw" || a.Type == "sketch" {
+			if r.sketch != nil {
+				return denied(409, "上一组笔画正在绘制")
+			}
 			strokes, err := makeStrokes(a.Shapes)
 			if err != nil {
 				return denied(400, err.Error())
+			}
+			if len(r.strokes)+len(strokes) > 600 {
+				return denied(409, "本轮画板已满")
+			}
+			if a.Type == "sketch" {
+				return r.startSketch(p.client, strokes, time.Now())
 			}
 			points := r.points
 			for _, s := range strokes {
 				points += len(s.Points)
 			}
-			if len(r.strokes)+len(strokes) > 600 || points > 24000 {
+			if points > 24000 {
 				return denied(409, "本轮画板已满")
 			}
 			for _, s := range strokes {

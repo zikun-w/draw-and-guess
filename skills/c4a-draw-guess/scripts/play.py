@@ -44,7 +44,8 @@ def main():
         actions.add_parser(op)
     actions.add_parser("choose").add_argument("index", type=int)
     actions.add_parser("guess").add_argument("text")
-    actions.add_parser("draw").add_argument("shapes", help="JSON array of shapes")
+    for op in ("sketch", "draw"):
+        actions.add_parser(op).add_argument("shapes", help="JSON array of shapes")
     actions.add_parser("board").add_argument("file", type=Path)
     args = parser.parse_args()
 
@@ -112,9 +113,9 @@ def main():
             view = fetch(base + "/state")
         else:
             body = {"type": args.op, "roundKey": seat["roundKey"]}
-            if args.op in ("draw", "undo", "clear"):
+            if args.op in ("sketch", "draw", "undo", "clear"):
                 body["seq"] = seat["seq"]
-            if args.op == "draw":
+            if args.op in ("sketch", "draw"):
                 body["shapes"] = json.loads(args.shapes)
             if args.op == "choose":
                 body["index"] = args.index

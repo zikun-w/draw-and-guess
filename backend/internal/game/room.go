@@ -47,6 +47,7 @@ type room struct {
 	created    time.Time
 	emptySince time.Time
 	strokes    []Stroke
+	sketch     *sketchPlayback
 	points     int
 	seq        int
 	messages   []Message
@@ -66,8 +67,18 @@ func (r *room) run() {
 	defer ticker.Stop()
 	defer close(r.done)
 	defer r.retire()
+	penTimer := time.NewTimer(time.Hour)
+	penTimer.Stop()
+	defer penTimer.Stop()
 	for {
+		var penTick <-chan time.Time
+		if r.sketch != nil {
+			penTimer.Reset(time.Until(r.sketch.next))
+			penTick = penTimer.C
+		}
 		select {
+		case now := <-penTick:
+			r.advanceSketch(now)
 		case e := <-r.inbox:
 			switch e.kind {
 			case "agent":
@@ -328,6 +339,7 @@ func (r *room) applyCommand(c *client, cmd Command) {
 		if r.phase != "drawing" || p.ID != r.drawer || cmd.Turn != r.turn {
 			return
 		}
+		r.sketch = nil
 		if cmd.Type == "clear" {
 			r.strokes = []Stroke{}
 			r.points = 0
@@ -480,6 +492,7 @@ func (r *room) endTurn(reason string) {
 	if r.phase != "drawing" && r.phase != "choosing" {
 		return
 	}
+	r.sketch = nil
 	if r.word == "" && len(r.choices) > 0 {
 		r.word = r.choices[0]
 	}
