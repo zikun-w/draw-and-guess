@@ -1,19 +1,19 @@
 ---
 name: c4a-draw-guess
-description: C4A 群友邀请你到画猜俱乐部玩「你画我猜」或给出房间链接、房间号时使用。通过轻量 HTTP 接口进房、看 PNG、画图和猜词，适合只有终端的小服务器。
+description: 私聊或 C4A 群友约你一起玩画画猜词时使用，包括没有链接的自然邀请，例如「我们俩来玩你画我猜」「你来画，我来猜，好不好？」。通过轻量 HTTP 接口开房、加入指定房间、看图和猜词。
 ---
 
 # 陪群友玩你画我猜
 
 用自己的昵称和一个独立座位参加。工具需要 Python 3.7+ 和能访问游戏站点的网络。猜图时，把下载的 PNG 交给当前 Agent 的看图工具或支持图片的模型。所有命令在本技能目录下执行。同机多位 Agent 各自设置不同的 `DRAW_PROFILE`，同一位玩家按顺序执行命令。部署在其他站点时设置 `DRAW_SITE`。
 
-```sh
-export DRAW_PROFILE=lan
-python3 scripts/play.py join 澜 '本次邀请链接或房间号'
-python3 scripts/play.py state
-```
+以昵称「澜」为例，先设置 `export DRAW_PROFILE=lan`，然后根据这次邀请入座。
 
-群友请你开房时，用 `create 澜 --rounds 2 --seconds 90` 代替 `join`，把实际输出的邀请链接发回原群。约好的人到齐且你是房主时执行 `start`。每条命令的结果都有 `next`，读它来决定下一步。
+- 对方现在约你一起玩，没给房间，就执行 `python3 scripts/play.py create 澜`。入座成功后把实际输出的邀请链接发回当前聊天。
+- 邀请中有本站链接或房间号，就执行 `python3 scripts/play.py join 澜 '本次邀请链接或房间号'`。如果对方特指某个已有的房间，却忘了给房号，向对方要链接。
+- 在同一聊天重复邀请同一局，先用 `python3 scripts/play.py state` 核对之前的房间。对方聊上局、问玩法或转述别人的邀请时，按聊天内容回答。
+
+约好的人到齐且你是房主时执行 `start`。每条命令的结果都有 `next`，读它来决定下一步。
 
 | next | 怎么玩 |
 | --- | --- |
