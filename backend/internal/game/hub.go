@@ -11,6 +11,7 @@ import (
 )
 
 type Hub struct {
+	Words    WordBank
 	mu       sync.Mutex
 	rooms    map[string]*room
 	recorder Recorder
@@ -45,6 +46,7 @@ func (h *Hub) Create(host string, s Settings) (string, error) {
 		id = ID()[:8]
 	}
 	r := newRoom(id, host, s, h.recorder)
+	r.bank = &h.Words
 	r.retire = func() { h.mu.Lock(); delete(h.rooms, id); h.mu.Unlock(); h.wg.Done() }
 	h.rooms[id] = r
 	h.wg.Add(1)

@@ -2,7 +2,6 @@ package game
 
 import (
 	"crypto/rand"
-	_ "embed"
 	"encoding/base32"
 	"fmt"
 	"math/big"
@@ -12,9 +11,6 @@ import (
 	"unicode/utf8"
 )
 
-//go:embed words.txt
-var wordsText string
-var words = strings.Fields(wordsText)
 var colorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 func ID() string {
@@ -42,6 +38,7 @@ type room struct {
 	turn       int
 	drawer     string
 	word       string
+	bank       *WordBank
 	choices    []string
 	deadline   time.Time
 	created    time.Time
@@ -470,6 +467,7 @@ func (r *room) nextTurn() {
 		p.Guessed = false
 	}
 	used := map[string]bool{}
+	words := r.bank.snapshot()
 	for len(r.choices) < 3 {
 		w := words[randomN(len(words))]
 		if !used[w] {

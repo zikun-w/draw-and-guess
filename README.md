@@ -19,6 +19,12 @@
 
 支持 1–5 轮游戏，每次绘画 30–180 秒。至少两位玩家加入后，由房主开始游戏。
 
+### 题库怎么更新
+
+题库在 [words.txt](backend/internal/game/words.txt)，每行一个中文题词。GitHub Actions 每周一北京时间 09:17 从 Unicode Emoji 分类和 CLDR 简体中文名称中筛选动物、食物、乐器等具体事物，每周最多追加 12 题。脚本会过滤生僻描述、归并常见别名、跳过已有题目；同周重跑不会再加一批。公开来源没有合适的新词时保留原库。动作题也可以直接编辑词库。可用 `python3 scripts/update-words.py --dry-run` 预览候选，或在 Actions 中手动运行 **Update game words**。[Unicode 分类](https://www.unicode.org/Public/emoji/latest/emoji-test.txt) · [CLDR 中文名](https://github.com/unicode-org/cldr-json/tree/main/cldr-json/cldr-annotations-full/annotations/zh) · [Unicode 数据许可](docs/unicode-license.txt)
+
+服务器启用 `WORD_BANK_URL` 后，启动时读取数据库同目录的 `word-bank.txt` 缓存，随后每 30 分钟检查仓库。更新在下一次选词时生效，正在选的三个词和正在画的答案会保留。网络故障或词库校验失败时继续使用最近的有效版本，首次离线启动可使用构建时内置的词库。两个部署环境示例中都有公开仓库的地址；已有安装可在 `/etc/drawguess.env` 加入同一行并在空闲时重启一次。
+
 ## 技术栈
 
 | 部分 | 实现 |

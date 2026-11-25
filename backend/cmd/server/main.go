@@ -28,7 +28,8 @@ func main() {
 		slog.Error("MAX_ROOMS must be between 1 and 1000")
 		os.Exit(1)
 	}
-	store, err := storage.Open(env("DATABASE_PATH", "data/game.db"))
+	database := env("DATABASE_PATH", "data/game.db")
+	store, err := storage.Open(database)
 	if err != nil {
 		slog.Error("open database", "error", err)
 		os.Exit(1)
@@ -38,6 +39,9 @@ func main() {
 	srv := &http.Server{Addr: env("LISTEN_ADDR", "127.0.0.1:8080"), Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if source := os.Getenv("WORD_BANK_URL"); source != "" {
+		startWordSync(ctx, source, database, &hub.Words)
+	}
 	failures := make(chan error, 1)
 	go func() {
 		slog.Info("server started", "addr", srv.Addr)
